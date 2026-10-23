@@ -176,20 +176,25 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const rec = new SR();
 rec.lang = 'en-IN';
 rec.continuous = true;
+const dbg = document.createElement('div');
+dbg.style.cssText = 'position:fixed;top:4px;left:6px;color:#0ff;font:14px sans-serif';
+document.body.appendChild(dbg);
 
 rec.onresult = e => {
   const t = e.results[e.results.length - 1][0].transcript.toLowerCase();
-  if (!t.includes('moshim')) return;              // wake word
+  dbg.textContent = 'heard: ' + t;
+  if (!/mo\s?mo|moma|mommo/.test(t)) return;
   setMood('thinking');
   setTimeout(() => {
-    if (t.includes('hello'))      { setMood('happy');  say('Hi! I am moshim.'); }
-    else if (t.includes('time'))  { setMood('');       say('It is ' + new Date().toLocaleTimeString()); }
-    else if (t.includes('love'))  { setMood('love');   say('Aww, I love you too!'); }
-    else                          { setMood('surprised'); say('Sorry, I did not get that.'); }
+    if (t.includes('hello'))     { setMood('happy');  say('Hi! I am Momo.'); }
+    else if (t.includes('time')) { setMood('');       say('It is ' + new Date().toLocaleTimeString()); }
+    else if (t.includes('love')) { setMood('love');   say('Aww, I love you too!'); }
+    else                         { setMood('surprised'); say('Sorry, I did not get that.'); }
   }, 600);
 };
-rec.onend = () => rec.start();                   // keep listening
-face.addEventListener('click', () => rec.start(), { once: true });
+rec.onerror = e => dbg.textContent = 'error: ' + e.error;
+rec.onend = () => setTimeout(() => { try { rec.start(); } catch (e) {} }, 300);
+face.addEventListener('click', () => { try { rec.start(); } catch (e) {} }, { once: true });
 
 blink(); loop(); start();
 </script>
