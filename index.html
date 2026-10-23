@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Desk Buddy Face</title>
+<style>
+  :root{--c:#0ff}
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  #face{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%}
+  #eyes{display:flex;gap:12vw}
+  .eye{width:26vw;height:26vw;max-width:34vh;max-height:34vh;background:var(--c);
+       border-radius:30%;position:relative;overflow:hidden;
+       transition:height .1s,border-radius .2s,transform .2s,background .3s;
+       box-shadow:0 0 30px var(--c)}
+  .pupil{position:absolute;width:40%;height:40%;left:30%;top:30%;
+         background:#000;border-radius:50%;will-change:transform;transition:width .2s,height .2s}
+  .lid{position:absolute;left:-10%;width:120%;height:50%;top:-50%;background:#000;transition:top .2s,transform .2s}
+  .mouth{margin-top:6vh;width:18vw;height:1.5vh;background:var(--c);border-radius:2vh;
+         box-shadow:0 0 20px var(--c);transition:height .07s,width .2s,border-radius .2s,background .3s}
+
+  /* Blink */
+  .blink .eye{height:2vh}
+
+  /* Happy: curved eyes, smile */
+  .happy .eye{border-radius:50% 50% 15% 15%;height:14vh}
+  .happy .mouth{width:22vw;height:5vh;border-radius:0 0 11vw 11vw}
+
+  /* Sad: drooping outer lids, frown */
+  .sad .lid{top:-20%}
+  .sad .left .lid{transform:rotate(-20deg)}
+  .sad .right .lid{transform:rotate(20deg)}
+  .sad .mouth{width:14vw;height:4vh;border-radius:7vw 7vw 0 0}
+
+  /* Angry: red, lids slanting inwards */
+  .angry{--c:#f33}
+  .angry .lid{top:-20%}
+  .angry .left .lid{transform:rotate(20deg)}
+  .angry .right .lid{transform:rotate(-20deg)}
+  .angry .mouth{width:16vw;height:1vh}
+
+  /* Surprised: big eyes, tiny pupils, round mouth */
+  .surprised .eye{transform:scale(1.15)}
+  .surprised .pupil{width:25%;height:25%;left:37.5%;top:37.5%}
+  .surprised .mouth{width:6vh;height:6vh;border-radius:50%}
+
+  /* Sleepy: half-closed lids */
+  .sleepy .lid{top:-5%}
+  .sleepy .mouth{width:8vw}
+
+  /* Thinking: one squinted eye, looking up and away */
+  .thinking .left .lid{top:-15%}
+  .thinking .mouth{width:8vw;transform:translateX(5vw)}
+
+  /* Love: pink, smile */
+  .love{--c:#f5a}
+  .love .mouth{width:20vw;height:4vh;border-radius:0 0 10vw 10vw}
+
+  video,canvas{display:none}
+</style>
+</head>
+<body>
+<div id="face">
+  <div id="eyes">
+    <div class="eye left"><div class="pupil"></div><div class="lid"></div></div>
+    <div class="eye right"><div class="pupil"></div><div class="lid"></div></div>
+  </div>
+  <div class="mouth"></div>
+</div>
+<video id="v" playsinline muted></video>
+<canvas id="c" width="64" height="48"></canvas>
+
+<script>
+const face = document.getElementById('face');
+const mouth = document.querySelector('.mouth');
+const pupils = document.querySelectorAll('.pupil');
+const v = document.getElementById('v');
+const c = document.getElementById('c');
+const ctx = c.getContext('2d', { willReadFrequently: true });
+const W = 64, H = 48;
+const MOODS = ['', 'happy', 'sad', 'angry', 'surprised', 'sleepy', 'thinking', 'love'];
+let mood = '', prev = null, tx = 0, ty = 0, x = 0, y = 0, idle = 0, talkTimer = null;
+
+function setMood(m) { mood = m; face.className = m; }
+
+// ---------- Talking ----------
+function say(text) {
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 1.05;
+  u.pitch = 1.3;
+  u.onstart = () => {
+    clearInterval(talkTimer);
+    talkTimer = setInterval(() => {
+      mouth.style.height = (1 + Math.random() * 5) + 'vh';
+    }, 90);
+  };
+  u.onend = u.onerror = () => {
+    clearInterval(talkTimer);
+    mouth.style.height = '';
+  };
+  speechSynthesis.speak(u);
+}
+
+// ---------- Blinking ----------
+function blink() {
+  face.classList.add('blink');
+  setTimeout(() => face.classList.remove('blink'), 120);
+  setTimeout(blink, 2000 + Math.random() * 4000);
+}
+
+// ---------- Camera ----------
+async function start() {
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: 160, height: 120, frameRate: 15 },
+      audio: false
+    });
+    v.srcObject = s;
+    await v.play();
+    setInterval(track, 66);   // ~15 checks per second
+  } catch (e) { console.log('Camera error:', e); }
+}
+
+// ---------- Motion tracking (no libraries) ----------
+function track() {
+  ctx.drawImage(v, 0, 0, W, H);
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const g = new Uint8Array(W * H);
+  let sx = 0, sy = 0, n = 0;
+  for (let i = 0, p = 0; p < W * H; i += 4, p++) {
+    g[p] = (d[i] + d[i + 1] * 2 + d[i + 2]) >> 2;          // greyscale
+    if (prev && Math.abs(g[p] - prev[p]) > 25) {          // pixel changed
+      sx += p % W; sy += (p / W) | 0; n++;
+    }
+  }
+  prev = g;
+
+  if (n > 20) {                                          // enough movement
+    tx = -((sx / n) / W - 0.5) * 2;                       // mirror for selfie cam
+    ty =  ((sy / n) / H - 0.5) * 2;
+    if (mood === 'sleepy') {
+      setMood('happy');
+      say('Oh, hello! You are back.');
+      setTimeout(() => setMood(''), 2500);
+    }
+    idle = 0;
+  } else if (++idle > 150 && mood === '') {               // ~10 s of stillness
+    setMood('sleepy');
+  }
+}
+
+// ---------- Smooth eye movement ----------
+function loop() {
+  let gx = tx, gy = ty;
+  if (mood === 'thinking') { gx = 0.6; gy = -0.6; }
+  x += (gx - x) * 0.15;
+  y += (gy - y) * 0.15;
+  const t = `translate(${x * 60}%, ${y * 60}%)`;
+  pupils.forEach(p => p.style.transform = t);
+  requestAnimationFrame(loop);
+}
+
+// ---------- Tap to test: cycles through moods and speaks ----------
+let mi = 0;
+face.addEventListener('click', () => {
+  mi = (mi + 1) % MOODS.length;
+  const m = MOODS[mi];
+  setMood(m);
+  idle = 0;
+  say(m ? `I am feeling ${m}.` : 'Back to normal.');
+});
+
+// ---------- Listening ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const rec = new SR();
+rec.lang = 'en-IN';
+rec.continuous = true;
+
+rec.onresult = e => {
+  const t = e.results[e.results.length - 1][0].transcript.toLowerCase();
+  if (!t.includes('moshim')) return;              // wake word
+  setMood('thinking');
+  setTimeout(() => {
+    if (t.includes('hello'))      { setMood('happy');  say('Hi! I am moshim.'); }
+    else if (t.includes('time'))  { setMood('');       say('It is ' + new Date().toLocaleTimeString()); }
+    else if (t.includes('love'))  { setMood('love');   say('Aww, I love you too!'); }
+    else                          { setMood('surprised'); say('Sorry, I did not get that.'); }
+  }, 600);
+};
+rec.onend = () => rec.start();                   // keep listening
+face.addEventListener('click', () => rec.start(), { once: true });
+
+blink(); loop(); start();
+</script>
+</body>
+</html>
